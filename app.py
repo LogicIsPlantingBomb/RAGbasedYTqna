@@ -168,20 +168,20 @@ def format_docs(retrieved_docs):
     context_text = "\n\n".join(doc.page_content for doc in retrieved_docs)
     return context_text
 
-def show_processing_step(step_num, description, is_current=False):
-    """Show processing step with animation"""
-    if is_current:
+def show_processing_step(description, is_completed=False):
+    """Show processing step with tick when completed"""
+    if is_completed:
         st.markdown(f"""
         <div class="step-indicator">
-            <div class="spinner"></div>
-            <span><strong>Step {step_num}:</strong> {description}</span>
+            <div class="step-number">✓</div>
+            <span>{description}</span>
         </div>
         """, unsafe_allow_html=True)
     else:
         st.markdown(f"""
         <div class="step-indicator">
-            <div class="step-number">✓</div>
-            <span><strong>Step {step_num}:</strong> {description}</span>
+            <div class="spinner"></div>
+            <span>{description}</span>
         </div>
         """, unsafe_allow_html=True)
 
@@ -279,107 +279,135 @@ if st.button("🚀 Get Answer", type="primary"):
             # Processing section
             st.markdown("### 🔄 Processing...")
             
-            progress_container = st.container()
+            # Create placeholders for each step
+            step1_placeholder = st.empty()
+            step2_placeholder = st.empty()
+            step3_placeholder = st.empty()
+            step4_placeholder = st.empty()
             
-            with progress_container:
+            try:
+                # Step 1: Fetch transcript
+                with step1_placeholder:
+                    show_processing_step("Fetching video transcript...")
+                
+                ytt_api = YouTubeTranscriptApi()
+                language_code = language_options[selected_language]
+                
                 try:
-                    # Step 1: Fetch transcript
-                    show_processing_step(1, "Fetching video transcript...", True)
+                    fetched_transcript = ytt_api.fetch(video_id, languages=[language_code])
+                except:
+                    # Fallback to English if selected language is not available
+                    fetched_transcript = ytt_api.fetch(video_id, languages=['en'])
+                    st.warning(f"⚠️ {selected_language} subtitles not available. Using English instead.")
+                
+                transcript = " ".join(snippet.text for snippet in fetched_transcript)
+                
+                # Update step 1 as completed
+                with step1_placeholder:
+                    show_processing_step("Transcript fetched ✓", True)
+                
+                # Step 2: Split text
+                with step2_placeholder:
+                    show_processing_step("Splitting transcript into chunks...")
+                
+                splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+                chunks = splitter.create_documents([transcript])
+                
+                # Update step 2 as completed
+                with step2_placeholder:
+                    show_processing_step(f"Text chunks created ({len(chunks)} chunks) ✓", True)
+                
+                # Step 3: Create embeddings
+                with step3_placeholder:
+                    show_processing_step("Creating vector embeddings...")
+                
+                embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+                vector_store = FAISS.from_documents(chunks, embeddings)
+                
+                # Update step 3 as completed
+                with step3_placeholder:
+                    show_processing_step("Vector embeddings created ✓", True)
+                
+                # Step 4: Generate answer
+                with step4_placeholder:
+                    show_processing_step("Generating AI response...")
+                
+                parser = StrOutputParser()
+                retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+                
+                prompt = PromptTemplate(
+                    template="""
+                    You are a helpful assistant analyzing YouTube video content.
+                    Answer the question based ONLY on the provided transcript context.
+                    If the context doesn't contain sufficient information, politely say you don't know.
+                    Provide detailed, well-structured answers when possible.
                     
-                    ytt_api = YouTubeTranscriptApi()
-                    language_code = language_options[selected_language]
+                    Context from video transcript:
+                    {context}
                     
-                    try:
-                        fetched_transcript = ytt_api.fetch(video_id, languages=[language_code])
-                    except:
-                        # Fallback to English if selected language is not available
-                        fetched_transcript = ytt_api.fetch(video_id, languages=['en'])
-                        st.warning(f"⚠️ {selected_language} subtitles not available. Using English instead.")
+                    Question: {question}
                     
-                    transcript = " ".join(snippet.text for snippet in fetched_transcript)
-                    show_processing_step(1, "Video transcript fetched successfully ✓")
-                    time.sleep(0.5)
-                    
-                    # Step 2: Split text
-                    show_processing_step(2, "Splitting transcript into chunks...", True)
-                    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-                    chunks = splitter.create_documents([transcript])
-                    show_processing_step(2, f"Created {len(chunks)} text chunks ✓")
-                    time.sleep(0.5)
-                    
-                    # Step 3: Create embeddings
-                    show_processing_step(3, "Creating vector embeddings...", True)
-                    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-                    vector_store = FAISS.from_documents(chunks, embeddings)
-                    show_processing_step(3, "Vector embeddings created ✓")
-                    time.sleep(0.5)
-                    
-                    # Step 4: Generate answer
-                    show_processing_step(4, "Generating AI response...", True)
-                    
-                    parser = StrOutputParser()
-                    retriever = vector_store.as_retriever(search_type="similarity", search_kwargs={"k": 4})
-                    
-                    prompt = PromptTemplate(
-                        template="""
-                        You are a helpful assistant analyzing YouTube video content.
-                        Answer the question based ONLY on the provided transcript context.
-                        If the context doesn't contain sufficient information, politely say you don't know.
-                        Provide detailed, well-structured answers when possible.
-                        Don't make up information.
-                        Don't say "Based on the context" or similar phrases.
-                        
-                        Context from video transcript:
-                        {context}
-                        Question: {question}
-                        
-                        Answer:
-                        """,
-                        input_variables=['context', 'question']
-                    )
-                    
-                    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.0)
-                    
-                    parallel_chain = RunnableParallel({
-                        'context': retriever | RunnableLambda(format_docs),
-                        'question': RunnablePassthrough()
-                    })
-                    
-                    main_chain = parallel_chain | prompt | llm | parser
-                    response = main_chain.invoke(question)
-                    
-                    show_processing_step(4, "AI response generated ✓")
-                    
-                    # Clear processing steps and show result
-                    progress_container.empty()
-                    
-                    # Success message
-                    st.markdown('<div class="success-box">✅ Processing completed successfully!</div>', unsafe_allow_html=True)
-                    
-                    # Display results
-                    st.markdown("### 💬 Answer")
-                    st.markdown(f"**Question:** {question}")
-                    st.markdown("**Response:**")
-                    st.write(response)
-                    
-                    # Video info
-                    with st.expander("📊 Processing Details"):
-                        st.write(f"**Video ID:** {video_id}")
-                        st.write(f"**Language:** {selected_language}")
-                        st.write(f"**Transcript Length:** {len(transcript)} characters")
-                        st.write(f"**Text Chunks:** {len(chunks)}")
-                    
-                except TranscriptsDisabled:
-                    progress_container.empty()
-                    st.markdown('<div class="error-box">❌ No subtitles available for this video. Please try a video with captions enabled.</div>', unsafe_allow_html=True)
-                    
-                except VideoUnavailable:
-                    progress_container.empty()
-                    st.markdown('<div class="error-box">❌ Video is unavailable or private. Please check the URL and try again.</div>', unsafe_allow_html=True)
-                    
-                except Exception as e:
-                    progress_container.empty()
-                    st.markdown(f'<div class="error-box">❌ Error: {str(e)}</div>', unsafe_allow_html=True)
+                    Answer:
+                    """,
+                    input_variables=['context', 'question']
+                )
+                
+                llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.0)
+                
+                parallel_chain = RunnableParallel({
+                    'context': retriever | RunnableLambda(format_docs),
+                    'question': RunnablePassthrough()
+                })
+                
+                main_chain = parallel_chain | prompt | llm | parser
+                response = main_chain.invoke(question)
+                
+                # Update step 4 as completed
+                with step4_placeholder:
+                    show_processing_step("AI response generated ✓", True)
+                
+                # Add a small delay to show all completed steps
+                time.sleep(1)
+                
+                # Success message
+                st.markdown('<div class="success-box">🎉 Processing completed successfully!</div>', unsafe_allow_html=True)
+                
+                # Display results
+                st.markdown("### 💬 Answer")
+                st.markdown(f"**Question:** {question}")
+                st.markdown("**Response:**")
+                st.write(response)
+                
+                # Video info
+                with st.expander("📊 Processing Details"):
+                    st.write(f"**Video ID:** {video_id}")
+                    st.write(f"**Language:** {selected_language}")
+                    st.write(f"**Transcript Length:** {len(transcript)} characters")
+                    st.write(f"**Text Chunks:** {len(chunks)}")
+                
+            except TranscriptsDisabled:
+                # Clear all placeholders
+                step1_placeholder.empty()
+                step2_placeholder.empty() 
+                step3_placeholder.empty()
+                step4_placeholder.empty()
+                st.markdown('<div class="error-box">❌ No subtitles available for this video. Please try a video with captions enabled.</div>', unsafe_allow_html=True)
+                
+            except VideoUnavailable:
+                # Clear all placeholders
+                step1_placeholder.empty()
+                step2_placeholder.empty()
+                step3_placeholder.empty() 
+                step4_placeholder.empty()
+                st.markdown('<div class="error-box">❌ Video is unavailable or private. Please check the URL and try again.</div>', unsafe_allow_html=True)
+                
+            except Exception as e:
+                # Clear all placeholders
+                step1_placeholder.empty()
+                step2_placeholder.empty()
+                step3_placeholder.empty()
+                step4_placeholder.empty()
+                st.markdown(f'<div class="error-box">❌ Error: {str(e)}</div>', unsafe_allow_html=True)
 
 # Footer
 st.markdown("---")
