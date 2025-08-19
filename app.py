@@ -219,6 +219,7 @@ with st.sidebar:
     - Japanese (ja)
     - Korean (ko)
     - Chinese (zh)
+    - Hindi(hi)
     """)
     
     st.markdown("---")
@@ -240,6 +241,7 @@ with col1:
 
 with col2:
     language_options = {
+        'Hindi': 'hi',
         'English': 'en',
         'Spanish': 'es', 
         'French': 'fr',
