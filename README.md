@@ -95,6 +95,7 @@ An AI-powered web application that allows users to ask questions about any YouTu
 | French | fr | Japanese | ja |
 | German | de | Korean | ko |
 | Italian | it | Chinese | zh |
+| Hindi | hi |
 
 ## 🏗️ Architecture
 
