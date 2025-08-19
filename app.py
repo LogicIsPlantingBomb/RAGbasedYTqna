@@ -343,7 +343,8 @@ if st.button("🚀 Get Answer", type="primary"):
                     Answer the question based ONLY on the provided transcript context.
                     If the context doesn't contain sufficient information, politely say you don't know.
                     Provide detailed, well-structured answers when possible.
-                    
+                    don't say "Based on the context" or "According to the transcript". 
+
                     Context from video transcript:
                     {context}
                     
