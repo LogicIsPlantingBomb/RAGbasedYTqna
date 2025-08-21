@@ -11,9 +11,93 @@ from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api import TranscriptsDisabled, VideoUnavailable
 from langchain_community.vectorstores import FAISS
 import time
+import requests
+import random
 
 # Load environment variables
 load_dotenv()
+
+# Free proxy list - rotated automatically
+FREE_PROXIES = [
+    {'http': 'http://103.149.162.194:80', 'https': 'https://103.149.162.194:80'},
+    {'http': 'http://185.199.84.161:53281', 'https': 'https://185.199.84.161:53281'},
+    {'http': 'http://103.145.113.78:80', 'https': 'https://103.145.113.78:80'},
+    {'http': 'http://194.233.69.126:443', 'https': 'https://194.233.69.126:443'},
+    {'http': 'http://154.236.189.26:1981', 'https': 'https://154.236.189.26:1981'},
+    {'http': 'http://103.145.113.88:80', 'https': 'https://103.145.113.88:80'},
+    {'http': 'http://103.149.162.195:80', 'https': 'https://103.149.162.195:80'},
+    {'http': 'http://185.199.84.161:53281', 'https': 'https://185.199.84.161:53281'}
+]
+
+def get_working_proxy():
+    """Test and return a working proxy - optimized for speed"""
+    test_url = "https://httpbin.org/ip"
+    
+    # Shuffle for better distribution
+    proxies_to_test = random.sample(FREE_PROXIES, min(3, len(FREE_PROXIES)))  # Test only 3 random proxies
+    
+    for proxy in proxies_to_test:
+        try:
+            response = requests.get(test_url, proxies=proxy, timeout=2)  # Reduced timeout to 2 seconds
+            if response.status_code == 200:
+                return proxy
+        except:
+            continue
+    
+    return None  # Return None if no proxy works
+
+def fetch_transcript_with_proxy(video_id, languages=['en'], proxy=None):
+    """Fetch transcript using proxy by setting environment variables"""
+    original_http_proxy = os.environ.get('HTTP_PROXY')
+    original_https_proxy = os.environ.get('HTTPS_PROXY')
+    
+    try:
+        if proxy:
+            # Set proxy environment variables
+            os.environ['HTTP_PROXY'] = proxy.get('http', '')
+            os.environ['HTTPS_PROXY'] = proxy.get('https', '')
+            
+        # Use your existing working code
+        ytt_api = YouTubeTranscriptApi()
+        fetched_transcript = ytt_api.fetch(video_id, languages=languages)
+        
+        connection_type = "proxy" if proxy else "direct"
+        return fetched_transcript, connection_type
+        
+    except Exception as e:
+        if proxy:
+            # If proxy fails, try direct connection
+            try:
+                # Clear proxy settings
+                if 'HTTP_PROXY' in os.environ:
+                    del os.environ['HTTP_PROXY']
+                if 'HTTPS_PROXY' in os.environ:
+                    del os.environ['HTTPS_PROXY']
+                    
+                ytt_api = YouTubeTranscriptApi()
+                fetched_transcript = ytt_api.fetch(video_id, languages=languages)
+                return fetched_transcript, "direct_fallback"
+            except:
+                raise e
+        else:
+            raise e
+    finally:
+        # Restore original proxy settings
+        if original_http_proxy:
+            os.environ['HTTP_PROXY'] = original_http_proxy
+        elif 'HTTP_PROXY' in os.environ:
+            del os.environ['HTTP_PROXY']
+            
+        if original_https_proxy:
+            os.environ['HTTPS_PROXY'] = original_https_proxy
+        elif 'HTTPS_PROXY' in os.environ:
+            del os.environ['HTTPS_PROXY']
+
+# Initialize session state for proxy management
+if 'current_proxy' not in st.session_state:
+    st.session_state.current_proxy = None
+if 'proxy_attempts' not in st.session_state:
+    st.session_state.proxy_attempts = 0
 
 # Page configuration
 st.set_page_config(
@@ -87,6 +171,16 @@ st.markdown("""
         border-left: 4px solid #4ecdc4;
         background-color: rgba(78, 205, 196, 0.1);
         color: #4ecdc4;
+    }
+    
+    .proxy-box {
+        padding: 0.8rem;
+        border-radius: 6px;
+        margin: 0.5rem 0;
+        border-left: 4px solid #f39c12;
+        background-color: rgba(243, 156, 18, 0.1);
+        color: #f39c12;
+        font-size: 0.9rem;
     }
     
     .sidebar .stSelectbox > div > div > select {
@@ -223,6 +317,27 @@ with st.sidebar:
     """)
     
     st.markdown("---")
+    
+    # Proxy status section
+    st.markdown("### 🔧 Connection Mode")
+    
+    # Add direct mode toggle
+    use_direct = st.checkbox("🚀 Direct Mode (Faster)", help="Skip proxy for faster processing")
+    if use_direct:
+        st.session_state.current_proxy = None
+        st.markdown('<div class="proxy-box">⚡ Direct Mode - Fastest but limited requests</div>', unsafe_allow_html=True)
+    elif st.session_state.current_proxy:
+        st.markdown('<div class="proxy-box">🟢 Proxy Active - Better request limits</div>', unsafe_allow_html=True)
+    else:
+        st.markdown('<div class="proxy-box">🔴 Auto Mode - Will use proxy if needed</div>', unsafe_allow_html=True)
+    
+    if st.button("🔄 Refresh Proxy", help="Get a new working proxy"):
+        with st.spinner("Testing proxies..."):
+            st.session_state.current_proxy = get_working_proxy()
+            st.session_state.proxy_attempts = 0
+        st.rerun()
+    
+    st.markdown("---")
     st.markdown("**Note:** Only videos with available subtitles can be processed.")
 
 # Main interface
@@ -292,14 +407,39 @@ if st.button("🚀 Get Answer", type="primary"):
                 with step1_placeholder:
                     show_processing_step("Fetching video transcript...")
                 
-                ytt_api = YouTubeTranscriptApi()
+                # Only try proxy if not in direct mode
+                if not use_direct:
+                    # Try to get a working proxy if we don't have one - but skip if too slow
+                    if not st.session_state.current_proxy and st.session_state.proxy_attempts < 2:  # Reduced attempts
+                        with st.spinner("Getting proxy..."):
+                            st.session_state.current_proxy = get_working_proxy()
+                            st.session_state.proxy_attempts += 1
+                
                 language_code = language_options[selected_language]
                 
                 try:
-                    fetched_transcript = ytt_api.fetch(video_id, languages=[language_code])
+                    proxy_to_use = None if use_direct else st.session_state.current_proxy
+                    fetched_transcript, connection_type = fetch_transcript_with_proxy(
+                        video_id, 
+                        languages=[language_code], 
+                        proxy=proxy_to_use
+                    )
+                    
+                    # Show connection type
+                    if connection_type == "proxy":
+                        st.markdown('<div class="proxy-box">🔗 Connected via proxy server</div>', unsafe_allow_html=True)
+                    elif connection_type == "direct_fallback":
+                        st.markdown('<div class="proxy-box">⚠️ Proxy failed, using direct connection</div>', unsafe_allow_html=True)
+                        st.session_state.current_proxy = None
+                    
                 except:
                     # Fallback to English if selected language is not available
-                    fetched_transcript = ytt_api.fetch(video_id, languages=['en'])
+                    proxy_to_use = None if use_direct else st.session_state.current_proxy
+                    fetched_transcript, connection_type = fetch_transcript_with_proxy(
+                        video_id, 
+                        languages=['en'], 
+                        proxy=proxy_to_use
+                    )
                     st.warning(f"⚠️ {selected_language} subtitles not available. Using English instead.")
                 
                 transcript = " ".join(snippet.text for snippet in fetched_transcript)
@@ -387,6 +527,7 @@ if st.button("🚀 Get Answer", type="primary"):
                     st.write(f"**Language:** {selected_language}")
                     st.write(f"**Transcript Length:** {len(transcript)} characters")
                     st.write(f"**Text Chunks:** {len(chunks)}")
+                    st.write(f"**Connection Type:** {connection_type}")
                 
             except TranscriptsDisabled:
                 # Clear all placeholders
@@ -405,13 +546,23 @@ if st.button("🚀 Get Answer", type="primary"):
                 st.markdown('<div class="error-box">❌ Video is unavailable or private. Please check the URL and try again.</div>', unsafe_allow_html=True)
                 
             except Exception as e:
-                # Clear all placeholders
+                # Clear all placeholders and try to refresh proxy on error
                 step1_placeholder.empty()
                 step2_placeholder.empty()
                 step3_placeholder.empty()
                 step4_placeholder.empty()
-                st.markdown(f'<div class="error-box">❌ Error: {str(e)}</div>', unsafe_allow_html=True)
+                
+                error_msg = str(e).lower()
+                if "too many requests" in error_msg or "rate limit" in error_msg or "blocked" in error_msg:
+                    st.markdown('<div class="error-box">🚫 Rate limited by YouTube. Trying to get a new proxy...</div>', unsafe_allow_html=True)
+                    st.session_state.current_proxy = get_working_proxy()
+                    if st.session_state.current_proxy:
+                        st.markdown('<div class="proxy-box">🔄 New proxy acquired. Please try again.</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div class="error-box">❌ No working proxies available. Please wait a few minutes and try again.</div>', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="error-box">❌ Error: {str(e)}</div>', unsafe_allow_html=True)
 
 # Footer
 st.markdown("---")
-st.markdown("*Powered by Google Gemini AI and LangChain*")
+st.markdown("*Powered by Google Gemini AI and LangChain • Enhanced with Proxy Support*")
