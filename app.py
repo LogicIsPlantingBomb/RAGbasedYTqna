@@ -322,7 +322,7 @@ with st.sidebar:
     st.markdown("### 🔧 Connection Mode")
     
     # Add direct mode toggle
-    use_direct = st.checkbox("🚀 Direct Mode (Faster)", help="Skip proxy for faster processing")
+    use_direct = st.checkbox("🚀 Direct Mode (Faster)",value=True,help="Skip proxy for faster processing")
     if use_direct:
         st.session_state.current_proxy = None
         st.markdown('<div class="proxy-box">⚡ Direct Mode - Fastest but limited requests</div>', unsafe_allow_html=True)
