@@ -12,7 +12,7 @@ An AI-powered web application that allows users to ask questions about any YouTu
 - **🎨 Modern UI**: Dark theme with smooth animations and loading indicators
 - **⚡ Fast Processing**: Efficient vector search using FAISS
 - **🤖 AI-Powered**: Uses Google's Gemini 1.5 Flash model for intelligent responses
-
+- **🤖 Proxy Servers**: Uses Proxy Servers for handling YT rate limiting
 
 ## 📋 Prerequisites
 
