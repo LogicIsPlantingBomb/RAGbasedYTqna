@@ -1,4 +1,4 @@
-# 🎥 YouTube Transcript Q&A Assistant.
+# 🎥 YouTube Transcript Q&A Assistant
 
 An AI-powered web application that allows users to ask questions about any YouTube video by analyzing its transcript content. Built with Streamlit, LangChain, and Google's Gemini AI.
 <img width="1914" height="903" alt="Screenshot_2025-08-19_02-25-43" src="https://github.com/user-attachments/assets/a80afa12-0030-43bc-84f4-df1cbcc2f39d" />
